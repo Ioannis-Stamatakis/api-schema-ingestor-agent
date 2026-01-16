@@ -240,6 +240,55 @@ def chat():
 
 
 @app.command()
+def status():
+    """
+    Show current configuration and connection status.
+
+    Displays the current settings and tests the database connection.
+    """
+    console.print(Panel.fit(
+        "[bold blue]API Schema Agent - Status[/bold blue]",
+        title="Configuration & Connection Status",
+    ))
+
+    # Load and display settings
+    try:
+        settings = get_settings()
+    except Exception as e:
+        console.print(f"\n[red]Configuration Error:[/red] {e}")
+        raise typer.Exit(code=1)
+
+    # Display configuration
+    config_table = Table(show_header=True, title="Configuration")
+    config_table.add_column("Setting", style="cyan")
+    config_table.add_column("Value", style="green")
+
+    config_table.add_row("Table Prefix", settings.table_prefix)
+    config_table.add_row("DB Schema", settings.db_schema)
+    config_table.add_row("Request Timeout", f"{settings.request_timeout}s")
+    config_table.add_row("Google API Key", "***configured***" if settings.google_api_key else "[red]Not set[/red]")
+
+    # Mask the database URL for security
+    db_url_masked = settings.db_url[:20] + "***" if len(settings.db_url) > 20 else "***"
+    config_table.add_row("Database URL", db_url_masked)
+
+    console.print(config_table)
+
+    # Test database connection
+    console.print("\n[bold]Database Connection Test:[/bold]")
+    try:
+        from sqlalchemy import create_engine, text
+        engine = create_engine(settings.db_url)
+        with engine.connect() as conn:
+            result = conn.execute(text("SELECT version()"))
+            version_info = result.scalar()
+            console.print(f"  [green]Connected successfully[/green]")
+            console.print(f"  PostgreSQL: {version_info[:50]}..." if len(version_info) > 50 else f"  PostgreSQL: {version_info}")
+    except Exception as e:
+        console.print(f"  [red]Connection failed:[/red] {e}")
+
+
+@app.command()
 def version():
     """Show version information."""
     console.print("[bold]API Schema Agent[/bold] v0.1.0")
