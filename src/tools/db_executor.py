@@ -110,6 +110,8 @@ def execute_insert(
     columns: list[str],
     primary_key: str | None = None,
     batch_size: int = 100,
+    flatten: bool = False,
+    depth: int = 1,
 ) -> dict[str, Any]:
     """
     Insert records into a table using batch inserts.
@@ -120,6 +122,8 @@ def execute_insert(
         columns: List of column names in order.
         primary_key: Primary key column for ON CONFLICT handling.
         batch_size: Number of records per batch.
+        flatten: If True, flatten records before insertion.
+        depth: Maximum depth to flatten (only used if flatten=True).
 
     Returns:
         Dictionary with insertion results.
@@ -145,7 +149,9 @@ def execute_insert(
 
                     for record in batch:
                         try:
-                            values = prepare_record_values(record, columns)
+                            values = prepare_record_values(
+                                record, columns, flatten=flatten, depth=depth
+                            )
                             cur.execute(insert_sql, values)
                             total_inserted += cur.rowcount
                         except psycopg.Error as e:

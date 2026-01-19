@@ -52,6 +52,17 @@ def ingest(
         "-i",
         help="Use interactive agent mode (chat with the AI)",
     ),
+    flatten: bool = typer.Option(
+        False,
+        "--flatten",
+        "-f",
+        help="Flatten nested JSON objects into separate columns instead of JSONB",
+    ),
+    depth: int = typer.Option(
+        1,
+        "--depth",
+        help="Maximum depth to flatten nested objects (default: 1, requires --flatten)",
+    ),
 ):
     """
     Ingest data from a public API URL into PostgreSQL.
@@ -69,10 +80,22 @@ def ingest(
         console.print("Please ensure .env file exists with DB_URL and GOOGLE_API_KEY")
         raise typer.Exit(code=1)
 
+    # Build mode string
+    mode_parts = []
+    if dry_run:
+        mode_parts.append("Dry Run")
+    if interactive:
+        mode_parts.append("Interactive")
+    if flatten:
+        mode_parts.append(f"Flatten (depth={depth})")
+    if not mode_parts:
+        mode_parts.append("Direct")
+    mode_str = ", ".join(mode_parts)
+
     console.print(Panel.fit(
         f"[bold blue]API Schema Agent[/bold blue]\n"
         f"URL: {url}\n"
-        f"Mode: {'Dry Run' if dry_run else 'Interactive' if interactive else 'Direct'}",
+        f"Mode: {mode_str}",
         title="Universal Data Ingestor",
     ))
 
@@ -81,7 +104,7 @@ def ingest(
         _run_interactive_mode(url, table_name)
     else:
         # Direct ingestion mode
-        _run_direct_mode(url, table_name, dry_run, verbose)
+        _run_direct_mode(url, table_name, dry_run, verbose, flatten, depth)
 
 
 def _run_interactive_mode(url: str, table_name: Optional[str]):
@@ -109,10 +132,12 @@ def _run_direct_mode(
     table_name: Optional[str],
     dry_run: bool,
     verbose: bool,
+    flatten: bool = False,
+    depth: int = 1,
 ):
     """Run direct data ingestion without agent interaction."""
     with console.status("[bold green]Processing...[/bold green]"):
-        result = ingest_data(url, table_name, dry_run)
+        result = ingest_data(url, table_name, dry_run, flatten=flatten, depth=depth)
 
     if not result.get("success"):
         if result.get("action") == "skipped":
@@ -141,8 +166,16 @@ def _display_dry_run_results(result: dict, verbose: bool):
     info_table.add_row("Table Name", result["table_name"])
     info_table.add_row("Primary Key", result.get("primary_key") or "None detected")
     info_table.add_row("Record Count", str(result["record_count"]))
+    if result.get("flatten"):
+        info_table.add_row("Flatten Mode", f"Enabled (depth={result.get('depth', 1)})")
 
     console.print(info_table)
+
+    # Warnings
+    if result.get("warnings"):
+        console.print("\n[yellow]Warnings:[/yellow]")
+        for warning in result["warnings"]:
+            console.print(f"  - {warning}")
 
     # Columns
     console.print("\n[bold]Inferred Columns:[/bold]")
@@ -173,8 +206,18 @@ def _display_ingestion_results(result: dict, verbose: bool):
     summary_table.add_row("Table Name", result["table_name"])
     summary_table.add_row("Primary Key", result.get("primary_key") or "None")
     summary_table.add_row("Rows Inserted", f"{result['rows_inserted']} / {result['total_records']}")
+    if result.get("flatten"):
+        summary_table.add_row("Flatten Mode", f"Enabled (depth={result.get('depth', 1)})")
 
     console.print(summary_table)
+
+    # Schema warnings (type conflicts, collisions)
+    if result.get("warnings"):
+        console.print("\n[yellow]Schema Warnings:[/yellow]")
+        for warning in result["warnings"][:5]:
+            console.print(f"  - {warning}")
+        if len(result["warnings"]) > 5:
+            console.print(f"  ... and {len(result['warnings']) - 5} more")
 
     # Columns
     if verbose:
@@ -188,9 +231,9 @@ def _display_ingestion_results(result: dict, verbose: bool):
 
         console.print(columns_table)
 
-    # Errors
+    # Insert errors
     if result.get("errors"):
-        console.print("\n[yellow]Warnings:[/yellow]")
+        console.print("\n[red]Insert Errors:[/red]")
         for error in result["errors"][:5]:  # Show first 5 errors
             console.print(f"  - {error}")
         if len(result["errors"]) > 5:

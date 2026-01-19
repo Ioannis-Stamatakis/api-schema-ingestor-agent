@@ -4,7 +4,7 @@ import json
 from typing import Any
 
 from src.config import get_settings
-from src.utils.type_mapper import infer_column_types
+from src.utils.type_mapper import flatten_record, infer_column_types
 
 
 # Columns that are likely primary keys
@@ -14,6 +14,8 @@ PRIMARY_KEY_CANDIDATES = {"id", "uuid", "_id", "pk", "key"}
 def infer_schema(
     data: list[dict[str, Any]] | dict[str, Any],
     table_name: str,
+    flatten: bool = False,
+    depth: int = 1,
 ) -> dict[str, Any]:
     """
     Infer PostgreSQL schema from JSON data and generate DDL.
@@ -24,6 +26,8 @@ def infer_schema(
     Args:
         data: The JSON data (list of objects or single object).
         table_name: The name for the PostgreSQL table.
+        flatten: If True, flatten nested dicts into separate columns.
+        depth: Maximum depth to flatten (only used if flatten=True).
 
     Returns:
         A dictionary containing:
@@ -32,6 +36,7 @@ def infer_schema(
         - primary_key: The detected primary key column (or None)
         - record_count: Number of records to insert
         - table_name: The sanitized table name
+        - warnings: List of warning messages (collisions, type conflicts)
     """
     settings = get_settings()
     schema = settings.db_schema
@@ -49,11 +54,12 @@ def infer_schema(
             "primary_key": None,
             "record_count": 0,
             "table_name": table_name,
+            "warnings": [],
             "error": "No data to infer schema from",
         }
 
     # Infer column types from all records
-    column_types = infer_column_types(records)
+    column_types, warnings = infer_column_types(records, flatten=flatten, depth=depth)
 
     # Detect primary key
     primary_key = _detect_primary_key(column_types)
@@ -67,6 +73,7 @@ def infer_schema(
         "primary_key": primary_key,
         "record_count": len(records),
         "table_name": table_name,
+        "warnings": warnings,
         "error": None,
     }
 
@@ -178,6 +185,8 @@ VALUES ({placeholders})"""
 def prepare_record_values(
     record: dict[str, Any],
     columns: list[str],
+    flatten: bool = False,
+    depth: int = 1,
 ) -> list[Any]:
     """
     Prepare record values for insertion, handling JSONB serialization.
@@ -185,10 +194,16 @@ def prepare_record_values(
     Args:
         record: The data record.
         columns: List of column names in order.
+        flatten: If True, flatten the record before extracting values.
+        depth: Maximum depth to flatten (only used if flatten=True).
 
     Returns:
         List of values ready for database insertion.
     """
+    # Flatten the record if needed
+    if flatten:
+        record = flatten_record(record, depth)
+
     values = []
     for col in columns:
         value = record.get(col)
