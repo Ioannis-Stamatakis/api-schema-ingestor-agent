@@ -1,17 +1,30 @@
 # API Schema Agent
 
-A CLI-based AI Agent that acts as a **Universal Data Ingestor** - automatically fetching data from public APIs, inferring PostgreSQL schemas, and loading data into your database.
+<div align="center">
 
-Built with the [Agno](https://github.com/agno-agi/agno) framework and Google Gemini 2.0 Flash.
+**Universal Data Ingestor** - Automatically fetch data from public APIs, infer PostgreSQL schemas, and load data into your database.
+
+[![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)
+[![PostgreSQL](https://img.shields.io/badge/PostgreSQL-15+-316192.svg)](https://www.postgresql.org/)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+
+Built with [Agno](https://github.com/agno-agi/agno) and Google Gemini 2.0 Flash
+
+</div>
+
+---
 
 ## Features
 
-- **Automatic Schema Inference**: Analyzes JSON structure and maps Python types to PostgreSQL types
-- **Primary Key Detection**: Automatically identifies `id`, `uuid`, or `_id` fields as primary keys
-- **Nested JSON Handling**: Stores complex nested objects as JSONB columns
-- **Idempotent Operations**: Safely skips tables that already exist
-- **Dual Mode**: Direct CLI execution or interactive AI agent chat
-- **Dry Run Support**: Preview inferred schema without database changes
+- **Automatic Schema Inference** - Analyzes JSON structure and maps to PostgreSQL types
+- **Flatten Mode** - Expand nested objects into columns (`user.address.city` → `user_address_city`)
+- **Primary Key Detection** - Identifies `id`, `uuid`, or `_id` fields automatically
+- **JSONB Support** - Stores complex nested objects as queryable JSONB
+- **Idempotent Operations** - Safely skips tables that already exist
+- **Dual Mode** - Direct CLI execution or interactive AI agent chat
+- **Dry Run** - Preview inferred schema without database changes
+
+---
 
 ## Quick Start
 
@@ -24,58 +37,101 @@ Built with the [Agno](https://github.com/agno-agi/agno) framework and Google Gem
 ### Installation
 
 ```bash
-# Clone the repository
 git clone https://github.com/yourusername/api-schema-agent.git
 cd api-schema-agent
 
-# Create virtual environment
 python -m venv venv
-source venv/bin/activate  # On Windows: venv\Scripts\activate
+source venv/bin/activate  # Windows: venv\Scripts\activate
 
-# Install dependencies
 pip install -r requirements.txt
 ```
 
 ### Configuration
 
-Create a `.env` file (use `.env.example` as template):
+Create a `.env` file:
 
 ```bash
-# PostgreSQL Connection
-# Note: URL-encode special characters (@ = %40, ! = %21)
+# PostgreSQL (URL-encode special chars: @ = %40, ! = %21)
 DB_URL=postgresql://user:password@host:5432/database
 
 # Google Gemini API Key
 GOOGLE_API_KEY=your_api_key_here
 
-# Optional settings
+# Optional
 TABLE_PREFIX=api_
 DB_SCHEMA=public
 ```
 
-### Usage
+---
+
+## Usage
+
+### Basic Ingestion
 
 ```bash
-# Ingest data from any public API
+# Ingest from any public API
 python main.py ingest "https://jsonplaceholder.typicode.com/users"
 
-# Preview schema without creating table (dry run)
+# Preview schema without creating table
 python main.py ingest "https://api.example.com/data" --dry-run --verbose
 
-# Use custom table name
-python main.py ingest "https://api.example.com/data" --table-name my_custom_table
+# Custom table name
+python main.py ingest "https://api.example.com/data" --table-name my_table
+```
 
-# Interactive AI agent mode (chat with Gemini)
+### Flatten Mode
+
+Expand nested JSON objects into separate columns instead of JSONB:
+
+```bash
+# Flatten one level deep (default)
+python main.py ingest "https://jsonplaceholder.typicode.com/users" --flatten
+
+# Flatten two levels deep
+python main.py ingest "https://jsonplaceholder.typicode.com/users" --flatten --depth 2
+```
+
+**Example transformation:**
+
+```json
+{"id": 1, "user": {"name": "John", "address": {"city": "NYC"}}}
+```
+
+| Flag | Result |
+|------|--------|
+| (none) | `user` → JSONB |
+| `--flatten` | `user_name` → TEXT, `user_address` → JSONB |
+| `--flatten --depth 2` | `user_name` → TEXT, `user_address_city` → TEXT |
+
+### Interactive Mode
+
+```bash
+# AI agent mode - chat with Gemini to ingest data
 python main.py ingest "https://api.example.com/data" --interactive
 
 # Start a chat session
 python main.py chat
 ```
 
+### CLI Options
+
+| Option | Short | Description |
+|--------|-------|-------------|
+| `--table-name` | `-t` | Custom table name |
+| `--dry-run` | `-d` | Preview schema only |
+| `--verbose` | `-v` | Show DDL statements |
+| `--flatten` | `-f` | Flatten nested objects |
+| `--depth` | | Flatten depth (default: 1) |
+| `--interactive` | `-i` | AI agent mode |
+
+---
+
 ## Example Output
 
+### Standard Mode (JSONB)
+
 ```
-$ python main.py ingest "https://jsonplaceholder.typicode.com/users" --verbose
+$ python main.py ingest "https://jsonplaceholder.typicode.com/users" -v
 
 ╭──────────── Universal Data Ingestor ────────────╮
 │ API Schema Agent                                │
@@ -89,7 +145,6 @@ Ingestion Complete!
  Primary Key    id
  Rows Inserted  10 / 10
 
-Table Schema:
 ┏━━━━━━━━━━┳━━━━━━━━┓
 ┃ Column   ┃ Type   ┃
 ┡━━━━━━━━━━╇━━━━━━━━┩
@@ -104,66 +159,82 @@ Table Schema:
 └──────────┴────────┘
 ```
 
+### Flatten Mode
+
+```
+$ python main.py ingest "https://jsonplaceholder.typicode.com/users" --flatten --depth 2 -v -d
+
+╭──────────── Universal Data Ingestor ────────────╮
+│ API Schema Agent                                │
+│ URL: https://jsonplaceholder.typicode.com/users │
+│ Mode: Dry Run, Flatten (depth=2)                │
+╰─────────────────────────────────────────────────╯
+
+Dry Run Results
+
+ Table Name    api_users
+ Primary Key   id
+ Record Count  10
+ Flatten Mode  Enabled (depth=2)
+
+┏━━━━━━━━━━━━━━━━━━━━━┳━━━━━━━━━━━━━━━━━┓
+┃ Column              ┃ PostgreSQL Type ┃
+┡━━━━━━━━━━━━━━━━━━━━━╇━━━━━━━━━━━━━━━━━┩
+│ id                  │ BIGINT          │
+│ name                │ TEXT            │
+│ username            │ TEXT            │
+│ email               │ TEXT            │
+│ address_street      │ TEXT            │
+│ address_suite       │ TEXT            │
+│ address_city        │ TEXT            │
+│ address_zipcode     │ TEXT            │
+│ address_geo_lat     │ TEXT            │
+│ address_geo_lng     │ TEXT            │
+│ phone               │ TEXT            │
+│ website             │ TEXT            │
+│ company_name        │ TEXT            │
+│ company_catchPhrase │ TEXT            │
+│ company_bs          │ TEXT            │
+└─────────────────────┴─────────────────┘
+```
+
+---
+
 ## Design Decisions
 
-### Why JSONB for Nested Objects?
+### JSONB vs Flatten
 
-When the agent encounters nested JSON structures (like `address` containing `street`, `city`, `geo`, etc.), it stores them as **JSONB columns** rather than flattening into separate columns.
+| Approach | Use When |
+|----------|----------|
+| **JSONB** (default) | Schema flexibility, unknown nesting, frequent API changes |
+| **Flatten** (`--flatten`) | SQL simplicity, known structure, analytics/BI tools |
 
-**Rationale:**
+**Querying JSONB columns:**
 
-1. **Flexibility**: Real-world APIs have unpredictable structures. JSONB handles any nesting depth without schema changes.
+```sql
+-- Get city from address
+SELECT name, address->>'city' as city FROM api_users;
 
-2. **Reliability**: Flattening creates fragile schemas - if an API adds a new nested field, the ingestor would need to alter the table. JSONB absorbs changes gracefully.
+-- Filter by nested value
+SELECT * FROM api_users WHERE address->>'city' = 'Gwenborough';
 
-3. **PostgreSQL JSONB is Powerful**: You can still query nested fields efficiently:
-   ```sql
-   -- Get city from address
-   SELECT name, address->>'city' as city FROM api_users;
+-- Index for performance
+CREATE INDEX idx_users_city ON api_users ((address->>'city'));
+```
 
-   -- Get latitude from nested geo object
-   SELECT name, address->'geo'->>'lat' as latitude FROM api_users;
+### Idempotent Operations
 
-   -- Filter by nested value
-   SELECT * FROM api_users WHERE address->>'city' = 'Gwenborough';
+When a table exists, the agent **skips** rather than appending or replacing. This prevents accidental duplication and makes scripts safe to re-run.
 
-   -- Index JSONB fields for performance
-   CREATE INDEX idx_users_city ON api_users ((address->>'city'));
-   ```
-
-4. **Industry Standard**: This approach mirrors how modern data platforms (Snowflake, BigQuery, etc.) handle semi-structured data.
-
-**Trade-off**: Queries on nested fields require JSONB operators (`->`, `->>`) instead of simple column access. This is acceptable for a universal ingestor prioritizing flexibility over query simplicity.
-
-### Why Skip Existing Tables?
-
-When a table already exists, the agent **skips** rather than appending or replacing data.
-
-**Rationale:**
-
-1. **Safety**: Prevents accidental data duplication or loss
-2. **Predictability**: Clear behavior - run once to create, explicit action needed to modify
-3. **Idempotency**: Safe to re-run scripts without side effects
-
-To reload data, manually drop the table first:
+To reload data:
 ```sql
 DROP TABLE IF EXISTS api_users;
 ```
 
-### Why Auto-Derive Table Names?
+### Type Mapping
 
-Table names are automatically extracted from the API URL path (e.g., `/users` → `api_users`).
-
-**Rationale:**
-
-1. **Convention over Configuration**: Reduces required user input
-2. **Consistency**: All tables get the same prefix (`api_` by default)
-3. **Override Available**: Use `--table-name` flag when needed
-
-## Type Mapping
-
-| Python Type | PostgreSQL Type |
-|-------------|-----------------|
+| Python | PostgreSQL |
+|--------|------------|
 | `str` | TEXT |
 | `int` | BIGINT |
 | `float` | DOUBLE PRECISION |
@@ -172,32 +243,50 @@ Table names are automatically extracted from the API URL path (e.g., `/users` �
 | `dict` | JSONB |
 | `None` | TEXT (nullable) |
 
+### Flatten Edge Cases
+
+| Scenario | Behavior |
+|----------|----------|
+| **Arrays** | Always JSONB (never flattened) |
+| **Name collision** | First occurrence wins + warning |
+| **Type conflict** | More permissive type used |
+
+Type precedence: `JSONB > TEXT > DOUBLE PRECISION > BIGINT > BOOLEAN`
+
+---
+
 ## Project Structure
 
 ```
 api-schema-agent/
 ├── main.py                 # CLI entry point (Typer)
-├── requirements.txt        # Dependencies
-├── .env.example           # Environment template
+├── requirements.txt
+├── .env.example
 └── src/
-    ├── agent.py           # Agno Agent with Gemini
-    ├── config.py          # Pydantic settings
+    ├── agent.py            # Agno Agent + Gemini
+    ├── config.py           # Pydantic settings
     ├── tools/
     │   ├── api_fetcher.py      # HTTP requests
     │   ├── schema_inferrer.py  # JSON → DDL
-    │   └── db_executor.py      # PostgreSQL operations
+    │   └── db_executor.py      # PostgreSQL ops
     └── utils/
-        ├── type_mapper.py      # Python → PostgreSQL types
+        ├── type_mapper.py      # Type mapping + flatten logic
         └── table_namer.py      # URL → table name
 ```
 
+---
+
 ## Tech Stack
 
-- **Framework**: [Agno](https://agno.com) (formerly Phidata) - AI agent framework
-- **LLM**: Google Gemini 2.0 Flash
-- **Database**: PostgreSQL with psycopg3
-- **CLI**: Typer + Rich for beautiful terminal output
-- **Config**: Pydantic Settings with python-dotenv
+| Component | Technology |
+|-----------|------------|
+| AI Framework | [Agno](https://agno.com) |
+| LLM | Google Gemini 2.0 Flash |
+| Database | PostgreSQL + psycopg3 |
+| CLI | Typer + Rich |
+| Config | Pydantic Settings |
+
+---
 
 ## License
 

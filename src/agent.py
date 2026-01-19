@@ -66,7 +66,13 @@ def create_agent() -> Agent:
     return agent
 
 
-def ingest_data(url: str, table_name: str | None = None, dry_run: bool = False) -> dict[str, Any]:
+def ingest_data(
+    url: str,
+    table_name: str | None = None,
+    dry_run: bool = False,
+    flatten: bool = False,
+    depth: int = 1,
+) -> dict[str, Any]:
     """
     Ingest data from an API URL into PostgreSQL.
 
@@ -77,6 +83,8 @@ def ingest_data(url: str, table_name: str | None = None, dry_run: bool = False) 
         url: The API URL to fetch data from.
         table_name: Optional custom table name.
         dry_run: If True, only infer schema without creating table or inserting.
+        flatten: If True, flatten nested dicts into separate columns.
+        depth: Maximum depth to flatten (only used if flatten=True).
 
     Returns:
         Dictionary with ingestion results.
@@ -110,7 +118,7 @@ def ingest_data(url: str, table_name: str | None = None, dry_run: bool = False) 
     records = data if isinstance(data, list) else [data]
 
     # Step 4: Infer schema
-    schema_result = infer_schema(records, final_table_name)
+    schema_result = infer_schema(records, final_table_name, flatten=flatten, depth=depth)
     if schema_result.get("error"):
         return {"success": False, "error": schema_result["error"]}
 
@@ -123,6 +131,9 @@ def ingest_data(url: str, table_name: str | None = None, dry_run: bool = False) 
             "columns": schema_result["columns"],
             "primary_key": schema_result["primary_key"],
             "record_count": len(records),
+            "warnings": schema_result.get("warnings", []),
+            "flatten": flatten,
+            "depth": depth,
         }
 
     # Step 5: Create table
@@ -137,6 +148,8 @@ def ingest_data(url: str, table_name: str | None = None, dry_run: bool = False) 
         records,
         columns,
         schema_result["primary_key"],
+        flatten=flatten,
+        depth=depth,
     )
 
     return {
@@ -148,4 +161,7 @@ def ingest_data(url: str, table_name: str | None = None, dry_run: bool = False) 
         "total_records": len(records),
         "message": insert_result["message"],
         "errors": insert_result.get("errors"),
+        "warnings": schema_result.get("warnings", []),
+        "flatten": flatten,
+        "depth": depth,
     }
