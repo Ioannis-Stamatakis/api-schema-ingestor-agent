@@ -72,6 +72,7 @@ def ingest_data(
     dry_run: bool = False,
     flatten: bool = False,
     depth: int = 1,
+    append: bool = False,
 ) -> dict[str, Any]:
     """
     Ingest data from an API URL into PostgreSQL.
@@ -85,6 +86,7 @@ def ingest_data(
         dry_run: If True, only infer schema without creating table or inserting.
         flatten: If True, flatten nested dicts into separate columns.
         depth: Maximum depth to flatten (only used if flatten=True).
+        append: If True, insert into existing table (skip DDL creation).
 
     Returns:
         Dictionary with ingestion results.
@@ -97,11 +99,13 @@ def ingest_data(
     if table_check.get("error"):
         return {"success": False, "error": table_check["error"]}
 
-    if table_check["exists"]:
+    table_exists = table_check["exists"]
+
+    if table_exists and not append:
         return {
             "success": False,
             "table_name": final_table_name,
-            "message": f"Table '{final_table_name}' already exists. Skipping to avoid duplicates.",
+            "message": f"Table '{final_table_name}' already exists. Use --append to insert into existing table.",
             "action": "skipped",
         }
 
@@ -136,10 +140,11 @@ def ingest_data(
             "depth": depth,
         }
 
-    # Step 5: Create table
-    ddl_result = execute_ddl(schema_result["ddl"])
-    if not ddl_result["success"]:
-        return {"success": False, "error": ddl_result["error"]}
+    # Step 5: Create table (skip if appending to existing table)
+    if not table_exists:
+        ddl_result = execute_ddl(schema_result["ddl"])
+        if not ddl_result["success"]:
+            return {"success": False, "error": ddl_result["error"]}
 
     # Step 6: Insert data
     columns = list(schema_result["columns"].keys())

@@ -63,6 +63,12 @@ def ingest(
         "--depth",
         help="Maximum depth to flatten nested objects (default: 1, requires --flatten)",
     ),
+    append: bool = typer.Option(
+        False,
+        "--append",
+        "-a",
+        help="Append data to existing table (skip table creation if exists)",
+    ),
 ):
     """
     Ingest data from a public API URL into PostgreSQL.
@@ -88,6 +94,8 @@ def ingest(
         mode_parts.append("Interactive")
     if flatten:
         mode_parts.append(f"Flatten (depth={depth})")
+    if append:
+        mode_parts.append("Append")
     if not mode_parts:
         mode_parts.append("Direct")
     mode_str = ", ".join(mode_parts)
@@ -104,7 +112,7 @@ def ingest(
         _run_interactive_mode(url, table_name)
     else:
         # Direct ingestion mode
-        _run_direct_mode(url, table_name, dry_run, verbose, flatten, depth)
+        _run_direct_mode(url, table_name, dry_run, verbose, flatten, depth, append)
 
 
 def _run_interactive_mode(url: str, table_name: Optional[str]):
@@ -134,17 +142,21 @@ def _run_direct_mode(
     verbose: bool,
     flatten: bool = False,
     depth: int = 1,
+    append: bool = False,
 ):
     """Run direct data ingestion without agent interaction."""
     with console.status("[bold green]Processing...[/bold green]"):
-        result = ingest_data(url, table_name, dry_run, flatten=flatten, depth=depth)
+        result = ingest_data(url, table_name, dry_run, flatten=flatten, depth=depth, append=append)
 
     if not result.get("success"):
         if result.get("action") == "skipped":
             console.print(f"\n[yellow]Skipped:[/yellow] {result.get('message')}")
             raise typer.Exit(code=0)
         else:
-            console.print(f"\n[red]Error:[/red] {result.get('error', 'Unknown error')}")
+            error_msg = result.get('error') or result.get('message') or 'Unknown error'
+            if result.get('errors'):
+                error_msg += f"\n  {result['errors'][0]}"
+            console.print(f"\n[red]Error:[/red] {error_msg}")
             raise typer.Exit(code=1)
 
     # Display results
