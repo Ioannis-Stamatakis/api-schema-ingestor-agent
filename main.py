@@ -255,6 +255,87 @@ def _display_ingestion_results(result: dict, verbose: bool):
 
 
 @app.command()
+def export(
+    table_name: str = typer.Argument(..., help="Name of the table to export"),
+    fmt: str = typer.Option(
+        "csv",
+        "--format",
+        "-f",
+        help="Output format: csv or json",
+    ),
+    output: Optional[str] = typer.Option(
+        None,
+        "--output",
+        "-o",
+        help="Output file path (defaults to <table_name>.<format>)",
+    ),
+    limit: Optional[int] = typer.Option(
+        None,
+        "--limit",
+        "-l",
+        help="Maximum number of rows to export",
+    ),
+):
+    """
+    Export a table to a CSV or JSON file.
+
+    Examples:
+        python main.py export api_users
+        python main.py export api_posts --format json
+        python main.py export api_users --output /tmp/users.csv --limit 500
+    """
+    if fmt not in ("csv", "json"):
+        console.print("[red]Error:[/red] --format must be 'csv' or 'json'")
+        raise typer.Exit(code=1)
+
+    try:
+        get_settings()
+    except Exception as e:
+        console.print(f"[red]Configuration error:[/red] {e}")
+        raise typer.Exit(code=1)
+
+    from src.tools.db_executor import check_table_exists, export_table
+
+    # Verify the table exists first
+    check_result = check_table_exists(table_name)
+    if check_result.get("error"):
+        console.print(f"[red]Database error:[/red] {check_result['error']}")
+        raise typer.Exit(code=1)
+    if not check_result["exists"]:
+        console.print(f"[red]Error:[/red] Table '{table_name}' does not exist")
+        raise typer.Exit(code=1)
+
+    output_path = output or f"{table_name}.{fmt}"
+
+    console.print(Panel.fit(
+        f"[bold blue]API Schema Agent[/bold blue]\n"
+        f"Table: {table_name}\n"
+        f"Format: {fmt.upper()}  |  Output: {output_path}"
+        + (f"  |  Limit: {limit}" if limit else ""),
+        title="Export",
+    ))
+
+    with console.status("[bold green]Exporting...[/bold green]"):
+        result = export_table(table_name, fmt=fmt, limit=limit)
+
+    if not result["success"]:
+        console.print(f"[red]Export failed:[/red] {result['error']}")
+        raise typer.Exit(code=1)
+
+    with open(output_path, "w", encoding="utf-8") as fh:
+        fh.write(result["data"])
+
+    console.print(f"\n[bold green]Export complete![/bold green]")
+    summary = Table(show_header=False, box=None)
+    summary.add_column("Property", style="cyan")
+    summary.add_column("Value")
+    summary.add_row("Rows exported", str(result["row_count"]))
+    summary.add_row("Columns", str(len(result["columns"])))
+    summary.add_row("Output file", output_path)
+    console.print(summary)
+
+
+@app.command()
 def chat():
     """
     Start an interactive chat session with the data ingestion agent.
