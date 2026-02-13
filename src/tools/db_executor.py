@@ -1,5 +1,8 @@
 """Database executor tool for PostgreSQL DDL and DML operations."""
 
+import csv
+import io
+import json
 from typing import Any
 
 import psycopg
@@ -211,5 +214,77 @@ def get_table_row_count(table_name: str) -> dict[str, Any]:
         return {
             "count": 0,
             "table_name": table_name,
+            "error": f"Database error: {str(e)}",
+        }
+
+
+def export_table(
+    table_name: str,
+    fmt: str = "csv",
+    limit: int | None = None,
+) -> dict[str, Any]:
+    """
+    Export all rows from a table as CSV or JSON.
+
+    Args:
+        table_name: The table to export.
+        fmt: Output format, either 'csv' or 'json'.
+        limit: Maximum number of rows to export (None = all rows).
+
+    Returns:
+        Dictionary with 'data' (str), 'row_count' (int), and 'columns' (list).
+    """
+    settings = get_settings()
+    schema = settings.db_schema
+
+    query = f'SELECT * FROM "{schema}"."{table_name}"'
+    if limit is not None:
+        query += f" LIMIT {int(limit)}"
+
+    try:
+        with get_connection() as conn:
+            with conn.cursor(row_factory=dict_row) as cur:
+                cur.execute(query)
+                rows = cur.fetchall()
+
+        if not rows:
+            return {
+                "success": True,
+                "data": "" if fmt == "csv" else "[]",
+                "row_count": 0,
+                "columns": [],
+                "error": None,
+            }
+
+        columns = list(rows[0].keys())
+
+        if fmt == "json":
+            # Serialize rows; convert non-serialisable values to str
+            def _default(o):
+                return str(o)
+
+            data = json.dumps([dict(r) for r in rows], default=_default, indent=2)
+        else:
+            buf = io.StringIO()
+            writer = csv.DictWriter(buf, fieldnames=columns)
+            writer.writeheader()
+            for row in rows:
+                writer.writerow({k: (json.dumps(v) if isinstance(v, (dict, list)) else v) for k, v in row.items()})
+            data = buf.getvalue()
+
+        return {
+            "success": True,
+            "data": data,
+            "row_count": len(rows),
+            "columns": columns,
+            "error": None,
+        }
+
+    except psycopg.Error as e:
+        return {
+            "success": False,
+            "data": None,
+            "row_count": 0,
+            "columns": [],
             "error": f"Database error: {str(e)}",
         }
