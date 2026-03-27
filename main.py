@@ -6,7 +6,9 @@ A CLI tool that uses an AI agent to ingest data from public APIs into PostgreSQL
 Built with the Agno framework and Google Gemini.
 """
 
+import json
 import sys
+from pathlib import Path
 from typing import Optional
 
 import typer
@@ -69,6 +71,12 @@ def ingest(
         "-a",
         help="Append data to existing table (skip table creation if exists)",
     ),
+    export: Optional[Path] = typer.Option(
+        None,
+        "--export",
+        "-e",
+        help="Export inferred schema to a JSON file at the given path",
+    ),
 ):
     """
     Ingest data from a public API URL into PostgreSQL.
@@ -112,7 +120,7 @@ def ingest(
         _run_interactive_mode(url, table_name)
     else:
         # Direct ingestion mode
-        _run_direct_mode(url, table_name, dry_run, verbose, flatten, depth, append)
+        _run_direct_mode(url, table_name, dry_run, verbose, flatten, depth, append, export)
 
 
 def _run_interactive_mode(url: str, table_name: Optional[str]):
@@ -143,6 +151,7 @@ def _run_direct_mode(
     flatten: bool = False,
     depth: int = 1,
     append: bool = False,
+    export: Optional[Path] = None,
 ):
     """Run direct data ingestion without agent interaction."""
     with console.status("[bold green]Processing...[/bold green]"):
@@ -164,6 +173,28 @@ def _run_direct_mode(
         _display_dry_run_results(result, verbose)
     else:
         _display_ingestion_results(result, verbose)
+
+    # Export schema if requested
+    if export:
+        _export_schema(result, export)
+
+
+def _export_schema(result: dict, path: Path):
+    """Write inferred schema metadata to a JSON file."""
+    export_data = {
+        "table_name": result.get("table_name"),
+        "primary_key": result.get("primary_key"),
+        "columns": result.get("columns", {}),
+        "ddl": result.get("ddl"),
+        "flatten": result.get("flatten", False),
+        "depth": result.get("depth", 1),
+        "warnings": result.get("warnings", []),
+    }
+    try:
+        path.write_text(json.dumps(export_data, indent=2))
+        console.print(f"\n[green]Schema exported to:[/green] {path}")
+    except OSError as e:
+        console.print(f"\n[red]Export failed:[/red] {e}")
 
 
 def _display_dry_run_results(result: dict, verbose: bool):
